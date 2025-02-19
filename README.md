@@ -28,3 +28,5 @@ Vision.ai helps visually impaired individuals by generating real-time image capt
    ```bash
    git clone https://github.com/nikhilitz/Vision.ai.git
    cd Vision.ai
+   
+   
