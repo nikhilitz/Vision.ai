@@ -1,26 +1,51 @@
 # Vision.ai
-Vision.ai helps visually impaired individuals by generating real-time image captions and converting them into speech. It uses CNNs for feature extraction, LSTMs for captioning, GANs for refinement, ML for optimization, and NLP for accuracy. With AI-driven assistance, Vision.ai enables users to better understand their surroundings instantly.
 
-# Vision.ai
+**Vision.ai** is an AI-powered assistive technology designed for visually impaired individuals. It generates real-time captions for uploaded images using state-of-the-art Transformer architectures and converts them into speech, enabling users to understand their surroundings effortlessly.
 
-**Vision.ai** is an AI-powered assistive technology designed for visually impaired individuals. It generates real-time captions for uploaded images and converts them into speech, enabling users to understand their surroundings through AI.
+---
 
 ## 🚀 Features
 
-- **Real-Time Image Captioning**: Uses CNN, LSTM, and GAN models for accurate caption generation.
-- **Speech Output**: Converts text captions into speech for easy understanding.
-- **Machine Learning & NLP**: Enhances caption quality, ensuring fluency and grammatical correctness.
-- **User-Friendly Interface**: Simple image upload system with an accessible UI.
+- **Real-Time Image Captioning**  
+  Uses **CNN + Transformer architecture** for accurate and context-aware caption generation.
+
+- **Speech Output (Text-to-Speech)**  
+  Converts generated captions into speech using `pyttsx3` for enhanced accessibility.
+
+- **AI-Driven Language Enhancement**  
+  Natural Language Processing techniques refine the output for grammatical and contextual correctness.
+
+- **User-Friendly Interface**  
+  Simple, intuitive image upload and output interface designed for accessibility.
+
+---
 
 ## 🛠️ Tech Stack
 
-- **Deep Learning**: CNN (Feature Extraction), LSTM (Captioning), GAN (Refinement)
-- **Machine Learning**: Model optimization and fine-tuning
-- **Natural Language Processing (NLP)**: Ensuring grammatically correct and contextually accurate captions
-- **Text-to-Speech (TTS)**: Uses `pyttsx3` for speech synthesis
-- **Frontend**: HTML, CSS, JavaScript
-- **Backend**: Python (Flask/FastAPI)
-- **Libraries**: PyTorch, OpenCV, NumPy, scikit-learn, NLTK, pyttsx3
+- **Deep Learning**
+  - **CNN** (Image Feature Extraction)
+  - **Transformer** (Caption Generation)
+  - **GAN (Optional)** for refinement/enhancement
+
+- **Machine Learning**
+  - Model tuning and caption optimization
+
+- **Natural Language Processing (NLP)**
+  - Grammar and context correction for fluent captions
+
+- **Text-to-Speech (TTS)**
+  - `pyttsx3` for speech synthesis
+
+- **Frontend**
+  - Streamlit-based User Interface
+
+- **Backend**
+  - Python (Modular Structure)
+
+- **Libraries & Tools**
+  - PyTorch, OpenCV, NumPy, scikit-learn, NLTK, torchvision, pyttsx3, transformers
+
+---
 
 ## 📦 Installation
 
@@ -28,5 +53,3 @@ Vision.ai helps visually impaired individuals by generating real-time image capt
    ```bash
    git clone https://github.com/nikhilitz/Vision.ai.git
    cd Vision.ai
-   
-   
