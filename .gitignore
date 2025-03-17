@@ -1,0 +1,23 @@
+# Ignore virtual environment
+imgcap/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Model files
+*.pt
+*.pkl
+
+# Dataset folders
+/data/images/
+/data/processed/
+/data/captions/
+
+# IDE folders
+.vscode/
+
+# Env secrets
+.env
