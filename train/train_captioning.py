@@ -47,3 +47,47 @@ model.train()
 pad_idx = vocab.stoi["<PAD>"]
 criterion = nn.CrossEntropyLoss(ignore_index=pad_idx)
 optimizer = optim.Adam(model.parameters(), lr=3e-4)
+
+
+from torch.nn.utils.rnn import pad_sequence
+from tqdm import tqdm
+
+num_epochs = 10  # set as needed
+
+for epoch in range(num_epochs):
+    model.train()
+    running_loss = 0.0
+
+    loop = tqdm(data_loader, leave=True)
+
+    for images, captions in loop:
+        images = images.to(device)
+        captions = captions.to(device)
+
+        # Prepare input and target (shift right for decoder input)
+        tgt_input = captions[:, :-1]  # input: remove last token
+        tgt_output = captions[:, 1:]  # target: remove first token
+
+        tgt_mask = nn.Transformer.generate_square_subsequent_mask(tgt_input.size(1)).to(device)
+
+        # Forward pass
+        outputs = model(images, tgt_input, tgt_mask)  # [B, T, vocab_size]
+
+        # Reshape for loss
+        outputs = outputs.reshape(-1, outputs.shape[2])     # [B*T, vocab_size]
+        tgt_output = tgt_output.reshape(-1)                 # [B*T]
+
+        loss = criterion(outputs, tgt_output)
+
+        # Backpropagation
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        running_loss += loss.item()
+
+        # tqdm progress bar update
+        loop.set_description(f"Epoch [{epoch+1}/{num_epochs}]")
+        loop.set_postfix(loss=loss.item())
+
+    print(f"Epoch {epoch+1} - Average Loss: {running_loss/len(data_loader):.4f}")
