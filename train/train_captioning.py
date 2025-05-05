@@ -37,7 +37,7 @@ except LookupError:
 
 
 # --- Define Class-based Collate (OUTSIDE if __name__ == "__main__":) ---
-# Define a class at the top level whose instance can be pickled.
+# This class must be defined at the top level of the module to be picklable.
 class TrainCollate:
     """
     A picklable class-based collate function for DataLoader workers.
@@ -102,7 +102,7 @@ if len(vocab) <= 4:
 
 # Get the image transformation pipeline
 # Consider using get_train_transform() if you add augmentation
-transform = get_transform()
+transform = get_transform() # Using the basic transform for now
 
 # Create the dataset instance
 dataset = CaptionDataset(
@@ -120,24 +120,24 @@ else:
     print(f"Successfully created dataset with {len(dataset)} image-caption pairs.")
 
 
-# --- MODIFICATION TO USE CLASS-BASED COLLATE_FN (Inside if __name__ == "__main__":) ---
+# --- Setup for DataLoader and Collate ---
 # Get the padding index from the vocabulary *after* it's built
 pad_idx = vocab.stoi["<pad>"]
 print(f"Padding token index: {pad_idx}")
 
 # Instantiate the picklable collate class, passing the padding value to its constructor
+# This instance will be passed to the DataLoader
 my_collate_fn_instance = TrainCollate(padding_value=pad_idx)
 
 # Create the DataLoader for batching data during training
-# Pass the *instance* of the collate class
 data_loader = DataLoader(
     dataset,
     batch_size=32, # Adjust batch size based on your system's memory
     shuffle=True,  # Shuffle data for better training
     num_workers=2, # num_workers > 0 is now okay with the picklable class instance
-    collate_fn=my_collate_fn_instance # Use the instance of the class
+    collate_fn=my_collate_fn_instance # Pass the *instance* of the collate class
 )
-# --- END OF MODIFICATION ---
+# --- End of DataLoader Setup ---
 
 
 # STEP 4: Initialize model and training tools
@@ -149,20 +149,32 @@ hidden_dim = 2048     # Dimension of feedforward network in Transformer
 num_layers = 3        # Number of Transformer decoder layers
 dropout = 0.1         # Dropout rate
 
+# --- Fine-tuning Configuration ---
+# Decide which encoder layers to fine-tune
+# Set to None or [] to keep the entire encoder frozen (original behavior)
+# ResNet layers: 'layer1', 'layer2', 'layer3', 'layer4'
+# Fine-tuning later layers is common. Start small, e.g., just 'layer4'.
+fine_tune_encoder_layers = ['layer4'] # Example: fine-tune only the last ResNet layer
+# fine_tune_encoder_layers = ['layer3', 'layer4'] # Example: fine-tune last two layers
+# fine_tune_encoder_layers = None # Example: keep encoder frozen
+
+
 # Set up device for training (GPU if available, otherwise CPU or MPS)
 # MPS is for Apple Silicon GPUs
 device = torch.device("mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu"))
 print(f"✅ Using {device} for training")
 
 # Initialize the CaptioningModel and move it to the selected device
+# Pass the configuration for fine-tuning to the model constructor
 model = CaptioningModel(
     vocab_size=vocab_size,
     embed_size=embed_size,
     num_heads=num_heads,
     hidden_dim=hidden_dim,
     num_layers=num_layers,
-    dropout=dropout, # Pass dropout here based on CaptioningModel __init__
-    max_len=100 # Use a reasonable max_len for Positional Encoding. Consider max caption length + 2.
+    dropout=dropout,
+    max_len=100, # Use a reasonable max_len for Positional Encoding. Consider max caption length + 2.
+    fine_tune_encoder_layers=fine_tune_encoder_layers # Pass the fine-tuning config
 ).to(device)
 
 # Define the loss function - Cross-Entropy Loss is standard for classification over vocabulary
@@ -170,11 +182,68 @@ model = CaptioningModel(
 criterion = nn.CrossEntropyLoss(ignore_index=pad_idx)
 
 # Define the optimizer - Adam is a common choice
-optimizer = optim.Adam(model.parameters(), lr=3e-4) # Learning rate
+# If fine-tuning, you are training more parameters.
+# It's often best to use a smaller learning rate for the fine-tuned layers than for the new layers (fc, bn) and the decoder.
+# A simple approach is to use a slightly smaller learning rate overall if fine-tuning.
+# A better approach is to use parameter groups:
+
+# Get trainable parameters
+trainable_params = filter(lambda p: p.requires_grad, model.parameters())
+
+# Simple Optimizer (all trainable params get the same LR)
+# learning_rate = 3e-4 # Original LR
+# if fine_tune_encoder_layers:
+#      learning_rate = 5e-5 # Example: Use a smaller LR when fine-tuning
+
+# optimizer = optim.Adam(trainable_params, lr=learning_rate)
+
+
+# --- Optimizer with Parameter Groups (Recommended for Fine-tuning) ---
+# This allows setting different learning rates for different parts of the model.
+# Parameters that require grad will be split into encoder (fine-tuned layers) and others (decoder, new fc/bn).
+encoder_params = []
+other_params = [] # Includes decoder, fc, bn
+
+for name, param in model.named_parameters():
+    if param.requires_grad: # Only consider parameters that are being trained
+        # Check if the parameter name is part of the fine-tuned encoder layers
+        # The names will look like 'encoder.layer4.0.conv1.weight' etc.
+        if fine_tune_encoder_layers and any(layer_name in name for layer_name in fine_tune_encoder_layers):
+             encoder_params.append(param)
+             # print(f"Adding encoder param to group: {name}") # Debugging
+        else:
+             other_params.append(param)
+             # print(f"Adding other param to group: {name}") # Debugging
+
+
+# Check if both lists have parameters if fine-tuning is enabled
+if fine_tune_encoder_layers and (not encoder_params or not other_params):
+    print("Warning: Fine-tuning is enabled, but parameter groups might not be correctly split.")
+    print(f"Encoder params group size: {len(encoder_params)}")
+    print(f"Other params group size: {len(other_params)}")
+    # Fallback to simple optimizer if parameter groups seem wrong
+    print("Falling back to optimizing all trainable params with the same LR.")
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=3e-4)
+else:
+    # Define learning rates
+    # Use a much smaller LR for the fine-tuned encoder layers
+    encoder_lr = 1e-5 if fine_tune_encoder_layers else 3e-4 # Smaller LR if fine-tuning, else main LR (though this group should be empty if not fine-tuning)
+    other_lr = 3e-4 # Main LR for decoder and new layers
+
+    # Create optimizer with parameter groups
+    optimizer = optim.Adam([
+        {'params': encoder_params, 'lr': encoder_lr}, # Group 0: Encoder fine-tuned layers (if any)
+        {'params': other_params, 'lr': other_lr}       # Group 1: Decoder, fc, bn
+    ], lr=other_lr) # The main 'lr' in Adam constructor is a default if not specified in groups, but set it to other_lr explicitly
+
+
+print(f"Optimizer set up. Training parameters: {len(list(model.parameters()))}. Trainable parameters: {len(list(filter(lambda p: p.requires_grad, model.parameters())))}")
+if fine_tune_encoder_layers:
+     print(f"Fine-tuning layers: {fine_tune_encoder_layers}. Encoder group LR: {optimizer.param_groups[0]['lr']}, Other group LR: {optimizer.param_groups[1]['lr']}")
 
 
 # STEP 5: Training Loop
-num_epochs = 10 # Define the number of training epochs
+num_epochs = 10 # Define the number of training epochs (you can change this)
 
 # Ensure the script runs the training loop when executed directly
 if __name__ == "__main__":
@@ -216,9 +285,9 @@ if __name__ == "__main__":
                 # nn.Transformer.generate_square_subsequent_mask creates a boolean mask where True is *masked*
                 # Its size is (sequence_length, sequence_length)
                 tgt_mask = nn.Transformer.generate_square_subsequent_mask(tgt_input.size(1)).to(device)
-                # The mask should be float for PyTorch Transformer <= 1.8. If using newer, boolean is fine.
-                # Adding .bool() if needed for clarity with newer PyTorch
-                # tgt_mask = nn.Transformer.generate_square_subsequent_mask(tgt_input.size(1)).bool().to(device)
+                # If using PyTorch < 1.9, the mask might need to be float and have -inf where True
+                # Check PyTorch docs for nn.Transformer.generate_square_subsequent_mask for your version.
+                # For newer versions, boolean mask is often handled internally.
 
 
                 # Perform the forward pass through the model
@@ -241,7 +310,7 @@ if __name__ == "__main__":
                 loss.backward()       # Compute gradients
                 optimizer.step()      # Update weights
 
-                running_loss += loss.item()
+                running_loss += loss.item() # Use .item() to get scalar value for accumulation
                 loop.set_postfix(loss=loss.item()) # Display current batch loss in tqdm
 
             # Print average loss for the epoch
@@ -258,7 +327,7 @@ if __name__ == "__main__":
     print("\n✨ Training finished.")
 
     # ✅ Save model state dictionary and vocabulary after training
-    # Define paths for saving
+    # Define paths for saving relative to the script location
     model_save_path = os.path.join(project_root_from_train, "model.pth")
     vocab_save_path = os.path.join(project_root_from_train, "vocab.pth")
 
@@ -266,12 +335,12 @@ if __name__ == "__main__":
         # Save the model's learned state dictionary (weights and biases)
         torch.save(model.state_dict(), model_save_path)
 
-        # Save the vocabulary object. Saving the entire object works but requires
-        # torch.serialization.add_safe_globals in the loading script and is less secure.
-        # A safer alternative is to save/load the vocabulary's state (stoi, itos dictionaries).
+        # Save the vocabulary object.
+        # Saving the entire object works but requires torch.serialization.add_safe_globals
+        # in the loading script and is less secure. Saving/loading state is safer.
         torch.save(vocab, vocab_save_path)
         # If you modified Vocabulary to have get_state/from_state:
-        # torch.save(vocab.get_state(), os.path.join(project_root, "vocab_state.pth"))
+        # torch.save(vocab.get_state(), os.path.join(project_root_from_train, "vocab_state.pth"))
 
         print(f"📦 Model state dictionary saved to {model_save_path}")
         print(f"📦 Vocabulary object saved to {vocab_save_path}")

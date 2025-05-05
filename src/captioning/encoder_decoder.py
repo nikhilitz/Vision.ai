@@ -59,36 +59,65 @@ class PositionalEncoding(nn.Module):
 class CNNEncoder(nn.Module):
     """
     CNN Encoder using a pre-trained ResNet model to extract image features.
-    The ResNet layers are frozen during training.
+    Allows selective fine-tuning of specified ResNet layers.
     A linear layer maps the features to the desired embedding size.
     """
-    def __init__(self, embed_size):
+    # Add fine_tune_layers parameter to constructor
+    def __init__(self, embed_size, fine_tune_layers=None):
         """
         :param embed_size: The dimension of the output image features (d_model for the Transformer).
+        :param fine_tune_layers: List of strings specifying which ResNet layers to unfreeze (e.g., ['layer4', 'layer3']).
+                                 If None or empty list, the entire ResNet remains frozen.
         """
         super(CNNEncoder, self).__init__()
         # Load a pre-trained ResNet50 model with default ImageNet weights
         weights = ResNet50_Weights.DEFAULT
         resnet = resnet50(weights=weights)
 
-        # Remove the final classification layer (AdaptiveAvgPool2d and Linear)
-        # ResNet structure: ... -> layer4 -> AdaptiveAvgPool2d -> Linear
-        # [:-1] removes the Linear layer, leaving the AdaptiveAvgPool2d.
-        # Output before Linear is [B, 2048] after flattening the AvgPool output.
-        modules = list(resnet.children())[:-1]  # remove final fc layer (Linear)
-        self.resnet = nn.Sequential(*modules) # This includes the AdaptiveAvgPool2d layer
+        # Get individual layer access to allow selective freezing/unfreezing
+        # Store them as attributes of this module
+        self.conv1 = resnet.conv1
+        self.bn1 = resnet.bn1
+        self.relu = resnet.relu
+        self.maxpool = resnet.maxpool
+        self.layer1 = resnet.layer1 # Bottleneck layers
+        self.layer2 = resnet.layer2 # Bottleneck layers
+        self.layer3 = resnet.layer3 # Bottleneck layers
+        self.layer4 = resnet.layer4 # Bottleneck layers
+        self.avgpool = resnet.avgpool # Keep the average pooling layer
 
-        # Freeze the parameters of the pre-trained ResNet
-        # This means these weights will not be updated during training
-        for param in self.resnet.parameters():
-            param.requires_grad = False
+        # --- Freezing/Unfreezing Logic ---
+        # Freeze all ResNet parameters initially
+        # We iterate through *all* named parameters of the ResNet components we've added
+        for name, param in self.named_parameters():
+             # Ensure we only freeze parameters from the ResNet components, not the new fc/bn layers
+             # Check if the parameter name starts with a ResNet component name
+             if any(name.startswith(resnet_part) for resnet_part in ['conv1', 'bn1', 'layer1', 'layer2', 'layer3', 'layer4', 'avgpool']):
+                  param.requires_grad = False
+                  # print(f"Froze: {name}") # Optional: for debugging
 
-        # Add a linear layer to map the output features from ResNet (2048 for ResNet50)
-        # to the embedding size required by the Transformer decoder.
+
+        # Unfreeze specified layers for fine-tuning
+        if fine_tune_layers is not None:
+             for layer_name in fine_tune_layers:
+                  # Get the layer module by name (e.g., self.layer4)
+                  layer = getattr(self, layer_name, None) # Use getattr with default None to avoid error if layer_name is invalid
+                  if layer is not None:
+                       # Unfreeze all parameters within this layer
+                       for param in layer.parameters():
+                            param.requires_grad = True
+                       print(f"✅ Unfroze layer for fine-tuning: {layer_name}")
+                  else:
+                       print(f"Warning: Layer '{layer_name}' not found in ResNet components. Cannot fine-tune.")
+
+
+        # Add a linear layer to map ResNet output features (2048 for ResNet50 after AvgPool) to embed_size
+        # We get the input feature size from the original resnet.fc layer
         self.fc = nn.Linear(resnet.fc.in_features, embed_size) # resnet.fc.in_features is 2048 for ResNet50
 
         # Add Batch Normalization after the linear layer
-        self.bn = nn.BatchNorm1d(embed_size, momentum=0.01) # Normalize the output features
+        self.bn = nn.BatchNorm1d(embed_size, momentum=0.01)
+
 
     def forward(self, images):
         """
@@ -96,10 +125,20 @@ class CNNEncoder(nn.Module):
         :param images: Input image tensors, shape [B, 3, H, W] (e.g., 224, 224)
         :return: Image feature vectors, shape [B, embed_size]
         """
-        # Use torch.no_grad() because the ResNet is frozen, no need to compute gradients
-        with torch.no_grad():
-            # Pass images through the frozen ResNet
-            features = self.resnet(images)  # Output after AdaptiveAvgPool2d: [B, 2048, 1, 1]
+        # Pass images through the ResNet layers sequentially
+        # No need for torch.no_grad() around the whole pass if some layers are unfrozen
+        x = self.conv1(images)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+
+        x = self.layer1(x) # Output shape depends on input and layer structure
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+
+        # Pass through Adaptive Average Pooling
+        features = self.avgpool(x)  # Output after AvgPool: [B, 2048, 1, 1]
 
         # Flatten the features from [B, 2048, 1, 1] to [B, 2048]
         features = features.view(features.size(0), -1)
@@ -109,7 +148,6 @@ class CNNEncoder(nn.Module):
 
         # Pass through BatchNorm
         features = self.bn(features) # Output: [B, embed_size]
-
         return features
 
 
@@ -155,7 +193,7 @@ class TransformerDecoder(nn.Module):
 
         # Final linear layer: maps decoder output features back to vocabulary size (logits)
         self.fc_out = nn.Linear(embed_size, vocab_size)
-        # Dropout layer (applied to input embeddings before Transformer)
+        # Dropout layer (applied to input embeddings)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, tgt_seq, memory, tgt_mask):
@@ -185,6 +223,7 @@ class TransformerDecoder(nn.Module):
         # Here, memory_sequence_length is 1.
         memory = memory.unsqueeze(0) # Shape: [B, E] -> [1, B, E]
 
+
         # Pass through the Transformer Decoder layers
         # tgt: [T, B, E], memory: [1, B, E], tgt_mask: [T, T]
         # memory_mask and memory_key_padding_mask are not used here as memory sequence length is 1
@@ -208,8 +247,10 @@ class TransformerDecoder(nn.Module):
 class CaptioningModel(nn.Module):
     """
     Combines the CNN Encoder and Transformer Decoder for the image captioning task.
+    Allows specifying which encoder layers to fine-tune.
     """
-    def __init__(self, vocab_size, embed_size, num_heads, hidden_dim, num_layers, dropout=0.1, max_len=100):
+    # Add fine_tune_encoder_layers parameter
+    def __init__(self, vocab_size, embed_size, num_heads, hidden_dim, num_layers, dropout=0.1, max_len=100, fine_tune_encoder_layers=None):
         """
         :param vocab_size: The size of the output vocabulary.
         :param embed_size: Dimension of embeddings and model features (d_model).
@@ -218,10 +259,11 @@ class CaptioningModel(nn.Module):
         :param num_layers: Number of Transformer layers.
         :param dropout: Dropout rate.
         :param max_len: Maximum sequence length for positional encoding.
+        :param fine_tune_encoder_layers: List of strings for ResNet layers to unfreeze (e.g., ['layer4']).
         """
         super(CaptioningModel, self).__init__()
-        # Instantiate the Encoder (Image Feature Extractor)
-        self.encoder = CNNEncoder(embed_size)
+        # Instantiate the Encoder (Image Feature Extractor), passing the fine_tune_layers argument
+        self.encoder = CNNEncoder(embed_size, fine_tune_layers=fine_tune_encoder_layers)
         # Instantiate the Decoder (Caption Sequence Generator)
         self.decoder = TransformerDecoder(
             vocab_size=vocab_size,
@@ -242,6 +284,7 @@ class CaptioningModel(nn.Module):
         :return: [B, T, vocab_size] logits over the vocabulary for each step in the sequence.
         """
         # 1. Encode the images to get compressed feature representations
+        # The encoder's requires_grad settings determine which parts are trained
         image_embeddings = self.encoder(images) # Output shape: [B, embed_size]
 
         # 2. Decode the captions using the image embeddings as context (memory)
