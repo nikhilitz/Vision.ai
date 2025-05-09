@@ -1,3 +1,4 @@
+
 # Vision.ai
 
 **Vision.ai** is an AI-powered assistive technology designed for visually impaired individuals. It generates real-time captions for uploaded images using state-of-the-art Transformer architectures and converts them into speech, enabling users to understand their surroundings effortlessly.
@@ -43,7 +44,7 @@
 
 ## 📂 Project Structure
 
-\`\`\`
+```
 Vision.ai/
 ├── Data/
 │   └── captions/
@@ -65,7 +66,7 @@ Vision.ai/
 ├── models/
 │   └── encoder_decoder.py
 ├── frontend/
-│   └── streamlit_app.py
+│   └── app.py
 ├── docker/
 │   ├── Dockerfile
 │   └── docker-compose.yml
@@ -73,7 +74,7 @@ Vision.ai/
 ├── requirements.txt
 ├── .gitignore
 ├── README.md
-\`\`\`
+```
 
 ## ✔️ Completed Modules
 
@@ -89,40 +90,40 @@ Vision.ai/
 All core modules are tested using `unittest`.
 
 Run tests individually:
-\`\`\`bash
+```bash
 python -m unittest test/test_transforms.py
 python -m unittest test/test_utils.py
 python -m unittest test/testVocab.py
-\`\`\`
+```
 
 Or run all tests (optional if `pytest` installed):
-\`\`\`bash
+```bash
 pytest test/
-\`\`\`
+```
 
 ## 📦 Installation
 
 1. Clone the repository:
-\`\`\`bash
+```bash
 git clone https://github.com/nikhilitz/Vision.ai.git
 cd Vision.ai
-\`\`\`
+```
 
 2. Create and activate virtual environment:
-\`\`\`bash
-python -m venv imgcap
-source imgcap/bin/activate  # On Windows: imgcap\Scripts\activate
-\`\`\`
+```bash
+conda create --name vision-ai-new
+conda activate vision-ai-new
+```
 
 3. Install dependencies:
-\`\`\`bash
+```bash
 pip install -r requirements.txt
-\`\`\`
+```
 
 4. Download NLTK tokenizer data (once only):
-\`\`\`bash
+```bash
 python -m nltk.downloader punkt
-\`\`\`
+```
 
 ## 📊 Upcoming Work
 
@@ -134,13 +135,3 @@ python -m nltk.downloader punkt
 - `tts_engine.py` – Convert text to speech  
 - `translator.py` – Optional caption translation  
 - `streamlit_app.py` – Frontend UI  
-- `Dockerfile` – Containerization
-
-## 📬 Contact
-
-**Author:** Nikhil Gupta  
-GitHub: https://github.com/nikhilitz
-
-## 📝 License
-
-MIT License – feel free to use, contribute, or modify.
