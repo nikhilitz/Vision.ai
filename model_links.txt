@@ -1,0 +1,2 @@
+model.pth: https://drive.google.com/uc?id=1BCgSWZFKGN4HtzCMGsxOSy_HtuDIly3g
+vocab.pth: https://drive.google.com/uc?id=1HxOwFzrnpj5njnvZjh6d065-7knXx2TW

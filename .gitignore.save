@@ -1,10 +1,6 @@
+
 # Ignore virtual environment
 imgcap/
-*.pth
-*.pt
-models/
-checkpoints/
-translation_models/
 
 # Python cache
 __pycache__/

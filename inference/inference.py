@@ -5,7 +5,7 @@ import torch.nn as nn
 from PIL import Image
 import nltk
 from torchvision import transforms
-import time # Optional: for timing inference
+import time  # Optional: for timing inference
 
 # 🧠 Add project root and TTS directory to path so `src` and `TTS` can be imported properly
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -16,7 +16,7 @@ sys.path.append(os.path.join(project_root, 'TTS'))  # Add TTS directory
 # Ensure your src/captioning/__init__.py exists (can be empty) for these imports to work
 from src.captioning.vocabulary import Vocabulary
 from src.captioning.encoder_decoder import CaptioningModel
-from src.captioning.transforms import get_transform # Consider get_test_transform if you made one
+from src.captioning.transforms import get_transform  # Consider get_test_transform if you made one
 # Assuming clean_caption from utils might be used for post-processing generated text
 from src.captioning.utils import clean_caption
 
